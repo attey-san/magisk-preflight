@@ -55,7 +55,7 @@ func resolveOverlays(m *Module) []overlay {
 			continue
 		}
 		top := strings.SplitN(rel, "/", 2)[0]
-		if seen[top] {
+		if seen[top] || strings.HasPrefix(top, ".") {
 			continue
 		}
 		seen[top] = true
@@ -95,9 +95,6 @@ func buildOverlay(m *Module, top string) overlay {
 		if !strings.HasPrefix(base, ".") {
 			o.Files = append(o.Files, relTree(f, dir))
 		}
-	}
-	if o.Mode == "replace" && o.Skipped {
-		o.Mode = "replace" // replace wins for what appears on disk
 	}
 	if o.Skipped {
 		o.Files = nil

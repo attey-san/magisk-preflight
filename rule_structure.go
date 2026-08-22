@@ -94,6 +94,9 @@ func isScriptLike(name string) bool {
 		"sepolicy.rule", "system.prop":
 		return true
 	}
+	if name == "META-INF/com/google/android/updater-script" {
+		return true
+	}
 	return strings.HasSuffix(name, ".sh")
 }
 

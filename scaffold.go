@@ -46,6 +46,8 @@ disables all Magisk modules, so a safe-mode boot recovers the device if
 something here misbehaves.
 `, id),
 
-		"system/.keep": "",
+		// A real overlay file rather than a .keep placeholder: this is what
+		// magisk actually mounts, so simulate has something honest to show.
+		"system/placeholder.txt": "remove me once the module replaces real files\n",
 	}
 }

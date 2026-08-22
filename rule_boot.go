@@ -85,7 +85,11 @@ var partitionWriteRule = Rule{
 	Run: func(m *Module, ctx *context) []Finding {
 		var out []Finding
 		writeCmd := regexp.MustCompile(`^\s*(sudo\s+)?(rm|cp|mv|dd|cat|tee|mkdir|touch|ln|chmod|chown|truncate|setfattr|patch|sed)\b`)
-		remount := regexp.MustCompile(`remount\b.*\b(rw|rw,)\b|(mount\s+-o\s+[^\n]*rw[^\n]*remount)|(remount[^|\n]*\brw\b)`)
+		// Remounts appear with the flags in either order; writes may name a
+		// partition path anywhere on the line, including inside quotes from
+		// `su -c "rm ... /system/x"`, which gets flagged separately by suRule.
+		remount := regexp.MustCompile(`\bremount\b[^\n]*\brw\b|\bmount\s+[^;\n]*-o[^;\n]*rw[^;\n]*remount`)
+		anySystemPath := regexp.MustCompile(`(^|[^[:alnum:]_])/(system|vendor|product|system_ext)(/|[[:alnum:]_]|$)`)
 
 		for _, name := range shellScripts(m) {
 			text, _ := m.text(name)
@@ -96,8 +100,7 @@ var partitionWriteRule = Rule{
 				}
 				lower := strings.ToLower(line)
 
-				if strings.Contains(lower, "/system") || strings.Contains(lower, "/vendor") ||
-					strings.Contains(lower, "/product") || strings.Contains(lower, "/system_ext") {
+				if anySystemPath.MatchString(lower) {
 
 					if remount.MatchString(lower) {
 						out = append(out, Finding{
@@ -106,7 +109,7 @@ var partitionWriteRule = Rule{
 						})
 						continue
 					}
-					if writeCmd.MatchString(line) {
+					if writeCmd.MatchString(line) || strings.HasPrefix(trimmed, "su ") || strings.HasPrefix(trimmed, "su\t") {
 						out = append(out, Finding{
 							Rule: "partition", Severity: SevError, File: name, Line: i + 1,
 							Message: "writes outside the module's own system/ overlay persist after uninstall and can hard-brick devices under dm-verity; put the file in the overlay instead",
