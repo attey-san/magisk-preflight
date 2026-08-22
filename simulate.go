@@ -157,9 +157,6 @@ func vendorNote(m *Module, out []overlay) []overlay {
 	return out
 }
 
-// relTree strips prefix/ from a path, keeping subdirectories readable.
-func relTree(path, prefix string) string { return strings.TrimPrefix(path, prefix+"/") }
-
 // resolveScripts lists scripts in the order magisk runs them. post-fs-data.sh
 // blocks the boot; service.sh runs after late_start and may take its time;
 // uninstall.sh and action.sh are event-driven rather than staged.

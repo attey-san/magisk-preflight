@@ -290,3 +290,37 @@ func firstMsg(fs map[string][]Finding, rule string) string {
 	}
 	return l[0].String()
 }
+
+// A module may ship a dot-directory under system/. Magisk mounts it like any
+// other, so simulate has to show it; reporting "nothing to simulate" here used
+// to lose the file silently.
+func TestSimulateDotDirectoryIsMounted(t *testing.T) {
+	root := t.TempDir()
+	files := map[string]string{
+		"module.prop":      goodProp,
+		"system/.config/x": "conf\n",
+		"system/etc/.keep": "",
+		"system/etc/hosts": "h\n",
+	}
+	if err := writeFixture(root, files); err != nil {
+		t.Fatal(err)
+	}
+	m, err := loadDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string][]string{}
+	for _, o := range resolvePlan(m).Overlays {
+		got[o.Target] = o.Files
+	}
+	if !slices.Contains(got["/.config"], "x") {
+		t.Errorf("/.config should mount x, got %v", got)
+	}
+	// A dot-file is a marker or metadata, not payload, and stays unlisted.
+	if slices.Contains(got["/etc"], ".keep") {
+		t.Errorf("/etc should not list the dot-file, got %v", got["/etc"])
+	}
+	if !slices.Contains(got["/etc"], "hosts") {
+		t.Errorf("/etc should mount hosts, got %v", got["/etc"])
+	}
+}

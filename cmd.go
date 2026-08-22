@@ -41,7 +41,7 @@ func cmdLint(args []string) int {
 		}
 		if len(findings) == 0 {
 			if n := len(m.Warnings); n > 0 {
-				fmt.Printf("%s: no rule findings, but %d load warning(s) above\n", m.Root, n)
+				fmt.Printf("%s: no rule findings, but %d load warning%s above\n", m.Root, n, plural(n))
 			} else {
 				fmt.Printf("%s: no problems found\n", m.Root)
 			}
