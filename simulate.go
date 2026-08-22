@@ -37,10 +37,7 @@ func resolvePlan(m *Module) plan {
 }
 
 // resolveOverlays maps each first-level directory under system/ to the device
-// path magisk would mount it over. Magisk merges file-by-file unless a
-// .replace marker sits in the module's copy of that directory, in which case
-// the whole target is covered by the module's version and every stock file
-// not shipped disappears from view. A top-level vendor/ tree is never mounted
+// path magisk would mount it over. A top-level vendor/ tree is never mounted
 // at all; it is surfaced here so simulate explains that too.
 func resolveOverlays(m *Module) []overlay {
 	var out []overlay
@@ -75,6 +72,11 @@ func resolveOverlays(m *Module) []overlay {
 	return out
 }
 
+// buildOverlay inspects everything under system/<top> to decide merge vs
+// replace and whether skip_mount applies. Magisk honours both markers at any
+// depth inside the subtree: .replace swaps the whole target directory for the
+// module's copy (hiding every stock file not shipped), .skip_mount skips the
+// mount entirely.
 func buildOverlay(m *Module, top string) overlay {
 	dir := "system/" + top
 	o := overlay{Target: "/" + top, Mode: "merge"}
@@ -88,7 +90,7 @@ func buildOverlay(m *Module, top string) overlay {
 			o.Skipped = true
 			continue
 		}
-		if base == ".replace" {
+		if base == ".replace" || strings.HasSuffix(base, "/.replace") {
 			o.Mode = "replace"
 			continue
 		}
