@@ -40,6 +40,15 @@ func resolvePlan(m *Module) plan {
 // path magisk would mount it over. A top-level vendor/ tree is never mounted
 // at all; it is surfaced here so simulate explains that too.
 func resolveOverlays(m *Module) []overlay {
+	// A .skip_mount directly under system/ skips every mount the module
+	// would otherwise do; report that instead of a per-directory plan.
+	if m.has("system/.skip_mount") {
+		return []overlay{{
+			Target:  "/system",
+			Skipped: true,
+			Mode:    "(skipped)",
+		}}
+	}
 	var out []overlay
 	seen := map[string]bool{}
 

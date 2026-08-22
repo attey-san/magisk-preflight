@@ -5,14 +5,63 @@ import (
 	"strings"
 )
 
+// stripQuoted removes double-quoted and single-quoted spans from a shell
+// line, so words inside strings (echo "do not sleep here") do not trip
+// command-oriented rules. Backslashes inside double quotes are left as-is;
+// this is deliberately conservative and only needs to be good enough to
+// avoid false positives.
+func stripQuoted(line string) string {
+	var b strings.Builder
+	var quote rune
+	for _, r := range line {
+		switch {
+		case quote == 0 && (r == '"' || r == '\''):
+			quote = r
+		case quote != 0 && r == quote:
+			quote = 0
+		case quote == 0:
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
 var (
 	sleepPattern  = regexp.MustCompile(`\bsleep\b`)
 	waitPattern   = regexp.MustCompile(`(^|[\s;&])wait\b`)
 	whilePattern  = regexp.MustCompile(`(^|[\s;&])while\b`)
 	netCmdPattern = regexp.MustCompile(`\b(curl|wget|ping\d?|nc|netcat)\b`)
-	lateWorkHints = regexp.MustCompile(`\b(am|pm|settings|svc|input|monkey|logcat|dmesg)\b`)
 	appLaunchHint = regexp.MustCompile(`\b(am\s+start|monkey\s+-p)\b`)
 )
+
+// commandText returns the line with quoted spans removed and comments
+// stripped, for rules that look at commands rather than prose.
+func commandText(line string) (string, bool) {
+	trimmed := strings.TrimSpace(line)
+	if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+		return "", false
+	}
+	if idx := indexUnquotedHash(trimmed); idx >= 0 {
+		trimmed = trimmed[:idx]
+	}
+	return stripQuoted(trimmed), true
+}
+
+// indexUnquotedHash finds a # that starts a comment outside quotes.
+func indexUnquotedHash(line string) int {
+	var quote rune
+	for i, r := range line {
+		switch {
+		case quote == 0 && (r == '"' || r == '\''):
+			quote = r
+		case quote != 0 && r == quote:
+			quote = 0
+		case quote == 0 && r == '#':
+			return i
+		}
+	}
+	return -1
+}
 
 // postFsDataRule flags anything slow, blocking or networked in
 // post-fs-data.sh. That stage runs synchronously before zygote; every second
@@ -26,8 +75,8 @@ var postFsDataRule = Rule{
 		}
 		var out []Finding
 		for i, line := range strings.Split(text, "\n") {
-			trimmed := strings.TrimSpace(line)
-			if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			cmd, ok := commandText(line)
+			if !ok {
 				continue
 			}
 			report := func(msg string) {
@@ -36,16 +85,16 @@ var postFsDataRule = Rule{
 					Message: msg,
 				})
 			}
-			if sleepPattern.MatchString(line) {
+			if sleepPattern.MatchString(cmd) {
 				report("sleep in post-fs-data blocks the entire boot; move it to service.sh which runs non-blocking after late_start")
 			}
-			if waitPattern.MatchString(line) {
+			if waitPattern.MatchString(cmd) {
 				report("wait blocks post-fs-data until children exit, stalling zygote; run background work from service.sh instead")
 			}
-			if whilePattern.MatchString(line) {
+			if whilePattern.MatchString(cmd) {
 				report("an unbounded while loop here delays zygote for as long as it runs; if it must loop, background it in service.sh")
 			}
-			if netCmdPattern.MatchString(line) {
+			if netCmdPattern.MatchString(cmd) {
 				report("there is no network in post-fs-data (and often no netd yet); this call fails every boot — move it to service.sh")
 			}
 		}
@@ -65,8 +114,12 @@ var serviceShRule = Rule{
 		}
 		var out []Finding
 		for i, line := range strings.Split(text, "\n") {
-			if appLaunchHint.MatchString(line) && !strings.Contains(line, "(sleep") &&
-				!strings.Contains(strings.ToLower(line), "until") {
+			cmd, ok := commandText(line)
+			if !ok {
+				continue
+			}
+			if appLaunchHint.MatchString(cmd) && !strings.Contains(cmd, "until") &&
+				!strings.Contains(cmd, "boot_completed") {
 				out = append(out, Finding{
 					Rule: "servicestage", Severity: SevNote, File: "service.sh", Line: i + 1,
 					Message: "apps are not launchable until well after service.sh starts on many devices; wrap this in a short wait-until-booted loop",
@@ -94,14 +147,13 @@ var partitionWriteRule = Rule{
 		for _, name := range shellScripts(m) {
 			text, _ := m.text(name)
 			for i, line := range strings.Split(text, "\n") {
-				trimmed := strings.TrimSpace(line)
-				if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+				cmd, ok := commandText(line)
+				if !ok {
 					continue
 				}
-				lower := strings.ToLower(line)
+				lower := strings.ToLower(cmd)
 
 				if anySystemPath.MatchString(lower) {
-
 					if remount.MatchString(lower) {
 						out = append(out, Finding{
 							Rule: "partition", Severity: SevError, File: name, Line: i + 1,
@@ -109,7 +161,13 @@ var partitionWriteRule = Rule{
 						})
 						continue
 					}
-					if writeCmd.MatchString(line) || strings.HasPrefix(trimmed, "su ") || strings.HasPrefix(trimmed, "su\t") {
+					// Writes may name a partition path anywhere on the line,
+					// including inside quotes from `su -c "rm ... /system/x"`,
+					// so the raw (unstripped) line is checked for the path but
+					// the command verb comes from the stripped text.
+					raw := strings.ToLower(strings.TrimSpace(stripQuoted(line)))
+					if writeCmd.MatchString(cmd) || writeCmd.MatchString(raw) ||
+						strings.HasPrefix(cmd, "su ") || strings.HasPrefix(cmd, "su\t") {
 						out = append(out, Finding{
 							Rule: "partition", Severity: SevError, File: name, Line: i + 1,
 							Message: "writes outside the module's own system/ overlay persist after uninstall and can hard-brick devices under dm-verity; put the file in the overlay instead",

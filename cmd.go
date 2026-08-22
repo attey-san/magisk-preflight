@@ -5,12 +5,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // cmdLint analyses a module and prints findings. Exit 1 when anything
 // error-severity turned up, 0 otherwise; 2 means the input could not be read.
 func cmdLint(args []string) int {
 	fs := flag.NewFlagSet("lint", flag.ContinueOnError)
+	fs.Usage = func() { usage(os.Stderr) }
 	jsonOut := fs.Bool("json", false, "emit JSON")
 	paths := parseTrailing(fs, args, 1)
 	if paths == nil {
@@ -21,6 +23,9 @@ func cmdLint(args []string) int {
 		return code
 	}
 	registerAll()
+	for _, w := range m.Warnings {
+		fmt.Fprintf(os.Stderr, "warning: %s\n", w)
+	}
 	findings := runRules(m)
 
 	if *jsonOut {
@@ -98,6 +103,7 @@ func plural(n int) string {
 // scripts run in which stage.
 func cmdSimulate(args []string) int {
 	fs := flag.NewFlagSet("simulate", flag.ContinueOnError)
+	fs.Usage = func() { usage(os.Stderr) }
 	paths := parseTrailing(fs, args, 1)
 	if paths == nil {
 		return 2
@@ -105,6 +111,9 @@ func cmdSimulate(args []string) int {
 	m, code := loadOrDie(paths[0])
 	if m == nil {
 		return code
+	}
+	for _, w := range m.Warnings {
+		fmt.Fprintf(os.Stderr, "warning: %s\n", w)
 	}
 	p := resolvePlan(m)
 
@@ -148,11 +157,17 @@ func cmdSimulate(args []string) int {
 // cmdNew scaffolds a module skeleton with correct structure from the start.
 func cmdNew(args []string) int {
 	if len(args) != 1 || args[0] == "" || args[0] == "." || args[0] == ".." ||
-		filepath.Base(args[0]) != args[0] {
+		strings.HasPrefix(args[0], "-") || filepath.Base(args[0]) != args[0] {
 		fmt.Fprintln(os.Stderr, "preflight new: a single directory name is required")
 		return 2
 	}
 	name := args[0]
+	// The name becomes the module id; scaffolding something the tool's own
+	// linter rejects on first run would be a bad first experience.
+	if !validID(name) {
+		fmt.Fprintf(os.Stderr, "preflight new: %q is not a valid module id (must match ^[a-zA-Z][a-zA-Z0-9._-]+$)\n", name)
+		return 2
+	}
 	dir := filepath.Join(".", name)
 	if _, err := os.Stat(dir); err == nil {
 		fmt.Fprintf(os.Stderr, "preflight new: %s already exists\n", dir)
@@ -165,7 +180,11 @@ func cmdNew(args []string) int {
 			fmt.Fprintf(os.Stderr, "preflight: %v\n", err)
 			return 2
 		}
-		if err := os.WriteFile(p, []byte(body), 0o755); err != nil {
+		mode := os.FileMode(0o644)
+		if strings.HasSuffix(rel, ".sh") || strings.HasSuffix(rel, "update-binary") {
+			mode = 0o755
+		}
+		if err := os.WriteFile(p, []byte(body), mode); err != nil {
 			fmt.Fprintf(os.Stderr, "preflight: %v\n", err)
 			return 2
 		}

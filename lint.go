@@ -80,5 +80,6 @@ func registerAll() {
 		iptablesWaitRule,
 		tlsRule,
 		safeModeRule,
+		symlinkRule,
 	)
 }

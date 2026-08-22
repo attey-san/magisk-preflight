@@ -57,23 +57,36 @@ var shebangRule = Rule{
 				continue // sourced by the installer, shebang never read
 			}
 			text, _ := m.text(name)
-			line := strings.SplitN(text, "\n", 2)[0]
+			line := strings.TrimSpace(strings.SplitN(text, "\n", 2)[0])
+			interpreter := ""
 			switch {
-			case strings.HasPrefix(line, "#!/bin/bash"), strings.HasPrefix(line, "#!/usr/bin/env bash"),
-				strings.HasPrefix(line, "#!/usr/bin/env bash"):
-				out = append(out, Finding{
-					Rule: "shebang", Severity: SevError, File: name, Line: 1,
-					Message: "bash does not exist at this path on android; the script dies with 'no such file or directory' when run directly",
-				})
 			case strings.HasPrefix(line, "#!"):
-				interpreter := strings.TrimPrefix(line, "#!")
-				interpreter = strings.TrimSpace(interpreter)
-				if interpreter == "/bin/sh" || interpreter == "/system/bin/sh" {
-					continue
+				interpreter = strings.TrimSpace(strings.TrimPrefix(line, "#!"))
+				// "#!/usr/bin/env bash": env -u args aside, the last word is
+				// the interpreter the author meant to run.
+				if fields := strings.Fields(interpreter); len(fields) > 1 && (fields[0] == "/usr/bin/env" || fields[0] == "/bin/env" || fields[0] == "env") {
+					interpreter = strings.Join(fields[1:], " ")
 				}
+			default:
+				continue
+			}
+			switch interpreter {
+			case "/bin/sh", "/system/bin/sh", "/sbin/sh", "/system/bin/mksh":
+				continue // present on android or the recovery environment
+			case "bash":
 				out = append(out, Finding{
 					Rule: "shebang", Severity: SevError, File: name, Line: 1,
-					Message: "interpreter " + interpreter + " is not present on android; use #!/system/bin/sh",
+					Message: "bash does not exist on android; the script dies with 'no such file or directory' when run directly",
+				})
+			case "/bin/bash", "/usr/bin/env bash", "/usr/bin/bash":
+				out = append(out, Finding{
+					Rule: "shebang", Severity: SevError, File: name, Line: 1,
+					Message: "no bash at this path on android; use #!/system/bin/sh",
+				})
+			default:
+				out = append(out, Finding{
+					Rule: "shebang", Severity: SevError, File: name, Line: 1,
+					Message: "interpreter " + interpreter + " is not guaranteed to exist on android; use #!/system/bin/sh",
 				})
 			}
 		}
@@ -88,12 +101,12 @@ var bashismRule = Rule{
 		for _, name := range shellScripts(m) {
 			text, _ := m.text(name)
 			for i, line := range strings.Split(text, "\n") {
-				trimmed := strings.TrimSpace(line)
-				if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+				cmd, ok := commandText(line)
+				if !ok {
 					continue
 				}
 				for _, p := range bashismPatterns {
-					if p.re.MatchString(line) {
+					if p.re.MatchString(cmd) {
 						out = append(out, Finding{
 							Rule: "bashism", Severity: SevError, File: name, Line: i + 1,
 							Message: p.msg,
@@ -114,7 +127,11 @@ var suRule = Rule{
 		for _, name := range shellScripts(m) {
 			text, _ := m.text(name)
 			for i, line := range strings.Split(text, "\n") {
-				if suPattern.MatchString(line) {
+				cmd, ok := commandText(line)
+				if !ok {
+					continue
+				}
+				if suPattern.MatchString(cmd) {
 					out = append(out, Finding{
 						Rule: "su", Severity: SevError, File: name, Line: i + 1,
 						Message: "module scripts already run as root; calling su re-prompts through the magisk shell and can deadlock the script",
