@@ -1,7 +1,6 @@
 package main
 
 import (
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -260,5 +259,3 @@ func firstMsg(fs map[string][]Finding, rule string) string {
 	}
 	return l[0].String()
 }
-
-var _ = os.Getenv // silence unused import if fixtures change shape
