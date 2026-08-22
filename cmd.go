@@ -12,14 +12,11 @@ import (
 func cmdLint(args []string) int {
 	fs := flag.NewFlagSet("lint", flag.ContinueOnError)
 	jsonOut := fs.Bool("json", false, "emit JSON")
-	if err := fs.Parse(args); err != nil {
+	paths := parseTrailing(fs, args, 1)
+	if paths == nil {
 		return 2
 	}
-	if fs.NArg() != 1 {
-		fmt.Fprintln(os.Stderr, "preflight lint: exactly one path is required")
-		return 2
-	}
-	m, code := loadOrDie(fs.Arg(0))
+	m, code := loadOrDie(paths[0])
 	if m == nil {
 		return code
 	}
@@ -47,14 +44,65 @@ func cmdLint(args []string) int {
 	return 0
 }
 
+// parseTrailing parses flags that may appear before, between or after
+// positional arguments: flag's default loop stops at the first non-flag word,
+// so "lint mod --json" would otherwise treat --json as a second path.
+//
+// Everything after a bare "--" is positional by definition, so the arguments
+// are split there first; the remainder is parsed repeatedly, holding out one
+// positional per pass until no flags are left. Exactly want positional
+// arguments are required, else a usage error is printed and nil returned.
+func parseTrailing(fs *flag.FlagSet, args []string, want int) []string {
+	head, tail := args, []string(nil)
+	for i, a := range args {
+		if a == "--" {
+			head, tail = args[:i], args[i+1:]
+			break
+		}
+	}
+
+	var positional []string
+	rest := head
+	for {
+		if err := fs.Parse(rest); err != nil {
+			return nil
+		}
+		next := fs.Args()
+		switch {
+		case len(next) == 0:
+			positional = append(positional, tail...)
+			if len(positional) != want {
+				fmt.Fprintf(os.Stderr, "preflight %s: exactly %d path argument%s required\n",
+					fs.Name(), want, plural(want))
+				return nil
+			}
+			return positional
+		case len(next) == len(rest):
+			// Parsing stopped on this token; hold it out and look past it.
+			positional = append(positional, next[0])
+			rest = next[1:]
+		default:
+			rest = next
+		}
+	}
+}
+
+func plural(n int) string {
+	if n == 1 {
+		return ""
+	}
+	return "s"
+}
+
 // cmdSimulate prints the resolved plan: what gets mounted where, and which
 // scripts run in which stage.
 func cmdSimulate(args []string) int {
-	if len(args) != 1 {
-		fmt.Fprintln(os.Stderr, "preflight simulate: exactly one path is required")
+	fs := flag.NewFlagSet("simulate", flag.ContinueOnError)
+	paths := parseTrailing(fs, args, 1)
+	if paths == nil {
 		return 2
 	}
-	m, code := loadOrDie(args[0])
+	m, code := loadOrDie(paths[0])
 	if m == nil {
 		return code
 	}
