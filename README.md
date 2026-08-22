@@ -56,15 +56,22 @@ An opaque zip becomes a plan you can read before trusting it with a reboot:
 ```
 $ preflight simulate my-module.zip
 system overlay:
-  /etc           replace
-      (every stock file in /etc not listed above is hidden)
   /bin           merge
       busybox
 scripts, in run order:
   customize.sh     install time (as root, on flash)
   post-fs-data.sh  post-fs-data (blocking, pre-zygote)  [blocks boot]
   service.sh       late_start service (non-blocking)
+
+$ preflight simulate replace-etc.zip
+system overlay:
+  /etc           replace
+      hosts
+      (every stock file in /etc not listed above is hidden)
 ```
+
+Flags work in any position (`preflight lint mod --json` is the same as
+`preflight lint --json mod`).
 
 ## The ruleset
 
@@ -72,12 +79,15 @@ Structural:
 
 - Module files must sit at the zip root. Nesting everything one folder deep
   installs fine and then does nothing; it is the most common packaging mistake.
-- `META-INF/com/google/android/updater-script` must contain `#MAGISK`.
+- `META-INF/com/google/android/updater-script` must contain `#MAGISK`, and
+  `update-binary` must exist: Magisk executes it to install anything.
 - module.prop needs id, name, version, versionCode, author, description. The
   id must match `^[a-zA-Z][a-zA-Z0-9._-]+$`, versionCode must be an integer,
   and a newline inside description breaks Magisk's parser.
 - CRLF line endings anywhere in module.prop or shell scripts. Android's sh
   chokes on the trailing `\r` and the failure looks nothing like its cause.
+- Symlinks are reported rather than silently followed; an absolute target
+  resolves against the phone's filesystem and replaces whatever lives there.
 
 Boot-stage correctness:
 

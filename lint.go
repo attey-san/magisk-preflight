@@ -1,8 +1,9 @@
 package main
 
 import (
-	"fmt"
 	"sort"
+	"strconv"
+	"strings"
 )
 
 // lintContext builds the shared per-run state from a loaded module.
@@ -29,11 +30,11 @@ func propInt(props map[string]string, key string) int {
 	if !ok {
 		return 0
 	}
-	var out int
-	if _, err := fmt.Sscanf(v, "%d", &out); err != nil {
+	n, err := strconv.Atoi(strings.TrimSpace(v))
+	if err != nil {
 		return 0
 	}
-	return out
+	return n
 }
 
 // runRules applies every registered rule and returns findings sorted by file,
