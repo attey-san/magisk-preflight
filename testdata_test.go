@@ -5,8 +5,8 @@ import (
 	"path/filepath"
 )
 
-// writeFixture writes a full module tree under testdata/<name>/ from a
-// path->contents map. Existing files are left in place.
+// writeFixture writes a full module tree under root from a path->contents
+// map. Existing files are overwritten in place.
 func writeFixture(root string, files map[string]string) error {
 	for rel, body := range files {
 		p := filepath.Join(root, filepath.FromSlash(rel))
@@ -14,6 +14,16 @@ func writeFixture(root string, files map[string]string) error {
 			return err
 		}
 		if err := os.WriteFile(p, []byte(body), 0o755); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// removeFixture deletes files from a module tree by relative path.
+func removeFixture(root string, rels ...string) error {
+	for _, rel := range rels {
+		if err := os.Remove(filepath.Join(root, filepath.FromSlash(rel))); err != nil && !os.IsNotExist(err) {
 			return err
 		}
 	}
@@ -35,6 +45,7 @@ const goodUpdater = "#MAGISK\n"
 var cleanModule = map[string]string{
 	"module.prop": goodProp,
 	"META-INF/com/google/android/updater-script": goodUpdater,
+	"META-INF/com/google/android/update-binary":  "#!/sbin/sh\ninstall_module\n",
 	"README.md": `# cleanmodule
 
 Replaces /system/etc/hosts with an ad-blocking list.
@@ -66,10 +77,14 @@ echo ok
 }
 
 // Each entry is one rule's minimal failing case: the fixture adds these files
-// on top of a valid base so exactly the target rule fires.
+// on top of a valid base so exactly the target rule fires. The special key
+// "delete:" removes a base file instead of writing one.
 var brokenByRule = map[string]map[string]string{
 	"meta": {
 		"META-INF/com/google/android/updater-script": "# nothing\n",
+	},
+	"updatebinary": {
+		"delete:META-INF/com/google/android/update-binary": "",
 	},
 	"prop": {
 		"module.prop": "id=9bad\nname=X\nversion=1\nauthor=a\ndescription=d\ngarbage line\n",

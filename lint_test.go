@@ -7,14 +7,27 @@ import (
 )
 
 // lintFixture materialises the clean module plus one broken overlay into a
-// temp dir and lints it, returning findings keyed by rule id.
+// temp dir and lints it, returning findings keyed by rule id. Overlay keys
+// starting with "delete:" remove the named base file instead.
 func lintFixture(t *testing.T, overlay map[string]string) map[string][]Finding {
 	t.Helper()
 	root := filepath.Join(t.TempDir(), "mod")
 	if err := writeFixture(root, cleanModule); err != nil {
 		t.Fatal(err)
 	}
-	if err := writeFixture(root, overlay); err != nil {
+	var deletes []string
+	writes := map[string]string{}
+	for k, v := range overlay {
+		if rest, ok := strings.CutPrefix(k, "delete:"); ok {
+			deletes = append(deletes, rest)
+		} else {
+			writes[k] = v
+		}
+	}
+	if err := writeFixture(root, writes); err != nil {
+		t.Fatal(err)
+	}
+	if err := removeFixture(root, deletes...); err != nil {
 		t.Fatal(err)
 	}
 	m, err := loadDir(root)
@@ -51,18 +64,19 @@ func TestOneRulePerFixture(t *testing.T) {
 		minSev  Severity
 		excused []string // rules allowed to fire as a side effect
 	}{
-		"meta":       {"meta", SevError, nil},
-		"prop":       {"prop", SevError, nil},
-		"crlf":       {"crlf", SevError, nil},
-		"shebang":    {"shebang", SevError, nil},
-		"bashism":    {"bashism", SevError, nil},
-		"su":         {"su", SevError, []string{"partition"}},
-		"postfsdata": {"postfsdata", SevError, []string{"safemode"}},
-		"partition":  {"partition", SevError, []string{"safemode"}},
-		"vendordir":  {"vendordir", SevError, nil},
-		"iptablesw":  {"iptablesw", SevError, []string{"safemode"}},
-		"safemode":   {"safemode", SevWarning, []string{"postfsdata"}},
-		"tls":        {"tls", SevError, []string{"postfsdata", "safemode"}},
+		"meta":         {"meta", SevError, nil},
+		"updatebinary": {"meta", SevError, nil},
+		"prop":         {"prop", SevError, nil},
+		"crlf":         {"crlf", SevError, nil},
+		"shebang":      {"shebang", SevError, nil},
+		"bashism":      {"bashism", SevError, nil},
+		"su":           {"su", SevError, []string{"partition"}},
+		"postfsdata":   {"postfsdata", SevError, []string{"safemode"}},
+		"partition":    {"partition", SevError, []string{"safemode"}},
+		"vendordir":    {"vendordir", SevError, nil},
+		"iptablesw":    {"iptablesw", SevError, []string{"safemode"}},
+		"safemode":     {"safemode", SevWarning, []string{"postfsdata"}},
+		"tls":          {"tls", SevError, []string{"postfsdata", "safemode"}},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {

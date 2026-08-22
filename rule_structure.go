@@ -5,24 +5,33 @@ import (
 	"strings"
 )
 
-// updaterRule checks the META-INF layout Magisk's install helper relies on.
+// updaterRule checks the META-INF layout Magisk's install helper relies on:
+// updater-script containing #MAGISK, and the update-binary stub that actually
+// performs the install.
 var updaterRule = Rule{
 	ID: "meta",
 	Run: func(m *Module, ctx *context) []Finding {
 		var out []Finding
 		const us = "META-INF/com/google/android/updater-script"
+		const ub = "META-INF/com/google/android/update-binary"
 		if !m.has(us) {
 			out = append(out, Finding{
 				Rule: "meta", Severity: SevError, File: "-",
 				Message: "META-INF/com/google/android/updater-script is missing; the magisk installer skips the module entirely",
 			})
-			return out
+		} else {
+			text, _ := m.text(us)
+			if !strings.Contains(text, "#MAGISK") {
+				out = append(out, Finding{
+					Rule: "meta", Severity: SevError, File: us, Line: 1,
+					Message: `updater-script lacks "#MAGISK"; the magisk stub will not run and nothing installs`,
+				})
+			}
 		}
-		text, _ := m.text(us)
-		if !strings.Contains(text, "#MAGISK") {
+		if !m.has(ub) {
 			out = append(out, Finding{
-				Rule: "meta", Severity: SevError, File: us, Line: 1,
-				Message: `updater-script lacks "#MAGISK"; the magisk stub will not run and nothing installs`,
+				Rule: "meta", Severity: SevError, File: ub,
+				Message: "update-binary is missing; magisk executes this file to install the module, so a zip without it fails to flash",
 			})
 		}
 		return out
