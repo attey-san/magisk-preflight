@@ -70,6 +70,22 @@ system overlay:
       (every stock file in /etc not listed above is hidden)
 ```
 
+A `.replace` marker applies to the directory holding it, not to that
+directory's parent, so a module can swap one app and keep merging everything
+beside it:
+
+```
+$ preflight simulate one-app.zip
+system overlay:
+  /app           merge
+      Bar/Bar.apk
+  /app/Foo       replace
+      Foo.apk
+      (every stock file in /app/Foo not listed above is hidden)
+```
+
+`.skip_mount` follows the same rule.
+
 Flags work in any position (`preflight lint mod --json` is the same as
 `preflight lint --json mod`).
 

@@ -2,6 +2,7 @@ package main
 
 import (
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -148,10 +149,12 @@ func TestSimulateReplaceAndSkipMount(t *testing.T) {
 		"module.prop":                      goodProp,
 		"system/etc/.replace":              "",
 		"system/etc/mkshrc":                "replaced\n",
-		"system/app/Foo/.replace":          "", // nested: must still force replace
+		"system/app/Foo/.replace":          "",
 		"system/app/Foo/Base.apk":          "x\n",
 		"system/app/Bar/Base.apk":          "y\n",
 		"system/priv-app/Skip/.skip_mount": "",
+		"system/priv-app/Skip/Hidden.apk":  "z\n",
+		"system/priv-app/Keep/Keep.apk":    "k\n",
 		"system/app/Real.apk":              "binary-ish\n",
 	}
 	if err := writeFixture(root, files); err != nil {
@@ -161,30 +164,38 @@ func TestSimulateReplaceAndSkipMount(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	p := resolvePlan(m)
 
-	var etc, app, skip *overlay
+	got := map[string]*overlay{}
+	p := resolvePlan(m)
 	for i := range p.Overlays {
-		switch o := &p.Overlays[i]; o.Target {
-		case "/etc":
-			etc = o
-		case "/app":
-			app = o
-		case "/priv-app":
-			skip = o
-		}
+		got[p.Overlays[i].Target] = &p.Overlays[i]
 	}
-	if etc == nil || etc.Mode != "replace" {
-		t.Fatalf("/etc should be replace, got %+v", etc)
+
+	// A marker replaces the directory holding it, not that directory's parent.
+	// /app/Foo is swapped; /app itself keeps merging, so Bar and Real.apk are
+	// still layered onto whatever the stock ROM ships.
+	if o := got["/app/Foo"]; o == nil || o.Mode != "replace" {
+		t.Errorf("/app/Foo should be replace, got %+v", o)
 	}
-	// Magisk honours .replace at any depth under system/: the marker in
-	// system/app/Foo must flip /app to replace even though /app also has a
-	// plain subdirectory.
-	if app == nil || app.Mode != "replace" {
-		t.Fatalf("/app with nested .replace should be replace, got %+v", app)
+	if o := got["/app"]; o == nil || o.Mode != "merge" {
+		t.Errorf("/app should still merge, got %+v", o)
+	} else if !slices.Contains(o.Files, "Bar/Base.apk") || !slices.Contains(o.Files, "Real.apk") {
+		t.Errorf("/app should carry its own files, got %v", o.Files)
+	} else if slices.Contains(o.Files, "Foo/Base.apk") {
+		t.Errorf("/app must not claim files owned by the replaced /app/Foo: %v", o.Files)
 	}
-	if skip == nil || !skip.Skipped || len(skip.Files) != 0 {
-		t.Fatalf(".skip_mount subtree should be skipped with no files, got %+v", skip)
+	if o := got["/etc"]; o == nil || o.Mode != "replace" {
+		t.Errorf("/etc should be replace, got %+v", o)
+	}
+
+	// Same rule for .skip_mount: only the marked directory is skipped.
+	if o := got["/priv-app/Skip"]; o == nil || !o.Skipped || len(o.Files) != 0 {
+		t.Errorf("/priv-app/Skip should be skipped with no files, got %+v", o)
+	}
+	if o := got["/priv-app"]; o == nil || o.Skipped {
+		t.Errorf("/priv-app must not inherit the skip, got %+v", o)
+	} else if !slices.Contains(o.Files, "Keep/Keep.apk") {
+		t.Errorf("/priv-app should still mount Keep.apk, got %v", o.Files)
 	}
 }
 

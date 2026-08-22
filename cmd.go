@@ -40,7 +40,11 @@ func cmdLint(args []string) int {
 			fmt.Println(f.String())
 		}
 		if len(findings) == 0 {
-			fmt.Printf("%s: no problems found\n", m.Root)
+			if n := len(m.Warnings); n > 0 {
+				fmt.Printf("%s: no rule findings, but %d load warning(s) above\n", m.Root, n)
+			} else {
+				fmt.Printf("%s: no problems found\n", m.Root)
+			}
 		}
 	}
 	if worst(findings) == SevError {

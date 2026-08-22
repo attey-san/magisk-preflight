@@ -1,6 +1,7 @@
 package main
 
 import (
+	"path"
 	"sort"
 	"strings"
 )
@@ -36,81 +37,124 @@ func resolvePlan(m *Module) plan {
 	}
 }
 
-// resolveOverlays maps each first-level directory under system/ to the device
-// path magisk would mount it over. A top-level vendor/ tree is never mounted
-// at all; it is surfaced here so simulate explains that too.
+// resolveOverlays works out what Magisk mounts and where. Targets are real
+// device directories, not first-level names: Magisk honours .replace and
+// .skip_mount on the directory that *contains* the marker, so a marker at
+// system/app/Foo/.replace swaps /system/app/Foo and leaves the rest of
+// /system/app merging as normal. Reporting that at /system/app instead would
+// claim every stock app disappears.
 func resolveOverlays(m *Module) []overlay {
-	// A .skip_mount directly under system/ skips every mount the module
-	// would otherwise do; report that instead of a per-directory plan.
 	if m.has("system/.skip_mount") {
-		return []overlay{{
-			Target:  "/system",
-			Skipped: true,
-			Mode:    "(skipped)",
-		}}
+		return []overlay{{Target: "/system", Skipped: true, Mode: "(skipped)"}}
 	}
-	var out []overlay
-	seen := map[string]bool{}
+	if m.has("system/.replace") {
+		return []overlay{{Target: "/system", Mode: "replace"}}
+	}
+
+	markers := map[string]string{} // dir under system/ -> "replace" or "skipped"
+	dirs := map[string]bool{}      // first-level dirs that hold files
+	var files []string             // payload paths, relative to system/
+	bare := false                  // a file sitting directly in system/
 
 	for _, name := range m.names() {
-		if !strings.HasPrefix(name, "system/") {
-			continue
-		}
 		rel := strings.TrimPrefix(name, "system/")
-		if rel == "" {
+		if rel == name || rel == "" {
 			continue
 		}
-		top := strings.SplitN(rel, "/", 2)[0]
-		if seen[top] || strings.HasPrefix(top, ".") {
+		dir, base := path.Split(rel)
+		dir = strings.TrimSuffix(dir, "/")
+		switch base {
+		case ".replace":
+			if markers[dir] != "skipped" {
+				markers[dir] = "replace"
+			}
+			continue
+		case ".skip_mount":
+			markers[dir] = "skipped"
 			continue
 		}
-		seen[top] = true
-		out = append(out, buildOverlay(m, top))
+		if strings.HasPrefix(base, ".") {
+			continue
+		}
+		files = append(files, rel)
+		if i := strings.Index(rel, "/"); i > 0 {
+			dirs[rel[:i]] = true
+		} else {
+			bare = true
+		}
 	}
+
+	targets := map[string]bool{}
+	for d := range dirs {
+		targets[d] = true
+	}
+	for d := range markers {
+		targets[d] = true
+	}
+	if bare {
+		targets[""] = true
+	}
+	if len(targets) == 0 {
+		return vendorNote(m, nil)
+	}
+
+	byTarget := map[string][]string{}
+	for _, f := range files {
+		t := nearestTarget(targets, f)
+		byTarget[t] = append(byTarget[t], strings.TrimPrefix(strings.TrimPrefix(f, t), "/"))
+	}
+
+	var out []overlay
+	for t := range targets {
+		o := overlay{Target: "/" + t, Mode: "merge", Files: byTarget[t]}
+		if t == "" {
+			o.Target = "/system"
+		}
+		switch markers[t] {
+		case "skipped":
+			o.Skipped = true
+			o.Files = nil
+		case "replace":
+			o.Mode = "replace"
+		}
+		sort.Strings(o.Files)
+		out = append(out, o)
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].Target < out[j].Target })
+	return vendorNote(m, out)
+}
+
+// nearestTarget returns the longest target directory that encloses f, so a
+// file under a replaced subdirectory is reported against that subdirectory
+// rather than against its parent.
+func nearestTarget(targets map[string]bool, f string) string {
+	best := ""
+	for t := range targets {
+		if t == "" {
+			continue
+		}
+		if f == t || strings.HasPrefix(f, t+"/") {
+			if len(t) > len(best) {
+				best = t
+			}
+		}
+	}
+	return best
+}
+
+// vendorNote prepends the warning about a top-level vendor/ tree, which magisk
+// never mounts.
+func vendorNote(m *Module, out []overlay) []overlay {
 	for _, name := range m.names() {
 		if name == "vendor" || strings.HasPrefix(name, "vendor/") {
-			out = append([]overlay{{
+			return append([]overlay{{
 				Target:     "/vendor",
 				Mode:       "(not mounted)",
 				VendorBare: true,
 			}}, out...)
-			break
 		}
 	}
-	sort.SliceStable(out, func(i, j int) bool { return out[i].Target < out[j].Target })
 	return out
-}
-
-// buildOverlay inspects everything under system/<top> to decide merge vs
-// replace and whether skip_mount applies. Magisk honours both markers at any
-// depth inside the subtree: .replace swaps the whole target directory for the
-// module's copy (hiding every stock file not shipped), .skip_mount skips the
-// mount entirely.
-func buildOverlay(m *Module, top string) overlay {
-	dir := "system/" + top
-	o := overlay{Target: "/" + top, Mode: "merge"}
-
-	for _, f := range m.names() {
-		if !strings.HasPrefix(f, dir+"/") {
-			continue
-		}
-		base := f[len(dir)+1:]
-		if base == ".skip_mount" || strings.HasSuffix(base, "/.skip_mount") {
-			o.Skipped = true
-			continue
-		}
-		if base == ".replace" || strings.HasSuffix(base, "/.replace") {
-			o.Mode = "replace"
-			continue
-		}
-		if !strings.HasPrefix(base, ".") {
-			o.Files = append(o.Files, relTree(f, dir))
-		}
-	}
-	if o.Skipped {
-		o.Files = nil
-	}
-	return o
 }
 
 // relTree strips prefix/ from a path, keeping subdirectories readable.

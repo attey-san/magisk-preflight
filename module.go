@@ -134,6 +134,11 @@ func cleanZipName(name string) (string, error) {
 	if len(name) >= 2 && name[1] == ':' {
 		return "", fmt.Errorf("windows drive prefix")
 	}
+	for _, seg := range strings.Split(name, "/") {
+		if seg == ".." {
+			return "", fmt.Errorf("path escapes the module root")
+		}
+	}
 	cleaned := pathSegments(name)
 	if cleaned == "" {
 		return "", fmt.Errorf("empty entry path")
