@@ -1,3 +1,4 @@
 preflight
-/preflight-arm64
+preflight-arm64
+magisk-preflight
 *.zip
