@@ -116,7 +116,7 @@ func parseAPIMention(text string) int {
 	if m == nil {
 		return 0
 	}
-	n, err := strconv.Atoi(m[3])
+	n, err := strconv.Atoi(m[1])
 	if err != nil {
 		return 0
 	}

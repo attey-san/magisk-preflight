@@ -95,10 +95,10 @@ func loadDir(dir string) (*Module, error) {
 	return m, nil
 }
 
-// loadZip reads a Magisk module zip into a Module. Magisk zips are not
-// compressed in any special way but may store everything under one top-level
-// folder; if exactly one such folder holds module.prop, it is stripped so the
-// rest of the tool sees normal paths.
+// loadZip reads a Magisk module zip into a Module. Paths are normalised
+// (leading ./ stripped) but no directory level is removed: a zip nested one
+// folder deep stays nested so the layout rule can report it, which is what
+// lint exists for. simulate and new both operate on correct layouts.
 func loadZip(path string) (*Module, error) {
 	zr, err := zip.OpenReader(path)
 	if err != nil {
@@ -123,16 +123,6 @@ func loadZip(path string) (*Module, error) {
 			return nil, err
 		}
 		m.Files[name] = b
-	}
-
-	if !m.has("module.prop") {
-		if prefix := nestedPrefix(m); prefix != "" {
-			stripped := map[string][]byte{}
-			for n, b := range m.Files {
-				stripped[strings.TrimPrefix(n, prefix)] = b
-			}
-			m.Files = stripped
-		}
 	}
 	return m, nil
 }

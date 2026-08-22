@@ -84,7 +84,7 @@ func buildOverlay(m *Module, top string) overlay {
 			continue
 		}
 		base := f[len(dir)+1:]
-		if strings.HasSuffix(base, ".skip_mount") {
+		if base == ".skip_mount" || strings.HasSuffix(base, "/.skip_mount") {
 			o.Skipped = true
 			continue
 		}
