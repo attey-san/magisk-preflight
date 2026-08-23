@@ -31,8 +31,7 @@ git clone https://github.com/attey/magisk-preflight && cd magisk-preflight
 go build -o preflight .
 ```
 
-The binary is static except for the C library, so it also cross-compiles to
-run in Termux on the device itself:
+No cgo, so it cross-compiles for the device and runs under Termux:
 
 ```
 GOOS=android GOARCH=arm64 go build -o preflight .
@@ -128,9 +127,9 @@ Systemless integrity:
   survives uninstall, and bricks devices where the partition is immutable or
   under dm-verity. Highest severity in the tool.
 - A bare top-level `vendor/` directory instead of `system/vendor/`.
-- `.replace` semantics: the marker makes Magisk swap the whole parent
-  directory rather than merge, silently hiding every other file in it.
-  simulate always reports this.
+- `.replace` semantics: the marker makes Magisk swap the directory holding it
+  rather than merge into it, silently hiding every stock file that directory
+  had. simulate always reports this, at the directory it actually applies to.
 
 Legacy-device traps:
 
