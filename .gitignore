@@ -2,4 +2,3 @@ preflight
 preflight-arm64
 magisk-preflight
 *.zip
-.commandcode/
