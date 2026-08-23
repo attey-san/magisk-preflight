@@ -21,13 +21,13 @@ warning  module does risky work but has no README documenting that booting andro
 With Go installed:
 
 ```
-go install github.com/attey/magisk-preflight@latest
+go install github.com/attey-san/magisk-preflight@latest
 ```
 
 Or build from a checkout:
 
 ```
-git clone https://github.com/attey/magisk-preflight && cd magisk-preflight
+git clone https://github.com/attey-san/magisk-preflight && cd magisk-preflight
 go build -o preflight .
 ```
 
