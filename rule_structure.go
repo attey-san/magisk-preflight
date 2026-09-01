@@ -109,5 +109,5 @@ func isScriptLike(name string) bool {
 	return strings.HasSuffix(name, ".sh")
 }
 
-// register is called once from run.go with every rule in reporting order.
+// register is called once from lint.go with every rule in reporting order.
 func register(rules ...Rule) { registry = append(registry, rules...) }

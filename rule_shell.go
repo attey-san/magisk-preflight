@@ -22,7 +22,7 @@ func shellScripts(m *Module) []string {
 		case "module.prop", "sepolicy.rule", "system.prop":
 			continue
 		}
-		if strings.HasSuffix(name, ".sh") || base == "customize.sh" {
+		if strings.HasSuffix(name, ".sh") {
 			out = append(out, name)
 		}
 	}

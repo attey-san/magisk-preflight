@@ -13,11 +13,8 @@ func lintContext(m *Module) *context {
 		ctx.prop, ctx.propOK = parseModuleProp(t)
 		ctx.minAPI = propInt(ctx.prop, "minApi")
 	}
-	if t, ok := m.text("customize.sh"); ok {
-		ctx.customSh = t
-		if ctx.minAPI == 0 {
-			ctx.minAPI = parseAPIMention(t)
-		}
+	if t, ok := m.text("customize.sh"); ok && ctx.minAPI == 0 {
+		ctx.minAPI = parseAPIMention(t)
 	}
 	return ctx
 }
