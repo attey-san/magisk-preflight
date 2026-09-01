@@ -44,11 +44,14 @@ func resolvePlan(m *Module) plan {
 // /system/app merging as normal. Reporting that at /system/app instead would
 // claim every stock app disappears.
 func resolveOverlays(m *Module) []overlay {
+	// A bare vendor/ is a fact about a different partition, so it survives
+	// both shortcuts below — whether /system is skipped or replaced has no
+	// bearing on whether vendor/ gets mounted, and it doesn't.
 	if m.has("system/.skip_mount") {
-		return []overlay{{Target: "/system", Skipped: true, Mode: "(skipped)"}}
+		return vendorNote(m, []overlay{{Target: "/system", Skipped: true, Mode: "(skipped)"}})
 	}
 	if m.has("system/.replace") {
-		return []overlay{{Target: "/system", Mode: "replace"}}
+		return vendorNote(m, []overlay{{Target: "/system", Mode: "replace"}})
 	}
 
 	markers := map[string]string{} // dir under system/ -> "replace" or "skipped"

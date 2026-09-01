@@ -6,7 +6,14 @@ import (
 	"strings"
 )
 
-var apiLine = regexp.MustCompile(`(?i)\b(?:api|sdk)[ _-]?(?:level)?[ _-]*=?[ _-]*(2[0-5]|1[0-9])\b`)
+// apiLine matches an API or SDK level mention. The range covers every real
+// level; the old 2[0-5]|1[0-9] window silently ignored "API 26" and later,
+// and API 9 and earlier.
+var apiLine = regexp.MustCompile(`(?i)\b(?:api|sdk)[ _-]?(?:level)?[ _-]*=?[ _-]*([1-9][0-9]?)\b`)
+
+// upperBound marks prose stating the highest level a module was built or
+// tested against, as opposed to the lowest one it supports.
+var upperBound = regexp.MustCompile(`(?i)\b(?:up to|at most|no (?:higher|newer|later) than|max(?:imum)?)\b`)
 
 // tlsRule flags https fetches when the module targets Android 7.0 (API 24) or
 // older, where the system trust store has no ISRG Root X1 and every Let's
@@ -109,9 +116,18 @@ func mentionsSafeMode(text string) bool {
 		strings.Contains(strings.ToLower(text), "safe-mode")
 }
 
-// parseAPIMention extracts an API level from customize.sh text like
-// "# Only tested up to API 25" — modules often state support there.
+// parseAPIMention extracts a *minimum* API level from customize.sh text like
+// "# requires api 21" — modules often state support there when module.prop
+// omits minApi.
+//
+// A stated maximum is not a minimum and is reported as unknown. The
+// distinction matters: minAPI gates tlsRule, which only fires at 24 and
+// below, so reading "tested up to API 25" as a floor of 25 silences the rule
+// on precisely the old modules it exists to catch.
 func parseAPIMention(text string) int {
+	if upperBound.MatchString(text) {
+		return 0
+	}
 	m := apiLine.FindStringSubmatch(text)
 	if m == nil {
 		return 0

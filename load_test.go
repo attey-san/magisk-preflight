@@ -27,6 +27,7 @@ func TestCleanZipName(t *testing.T) {
 		"./module.prop": "module.prop",
 		"././system/x":  "system/x",
 		"a//b":          "a/b",
+		`a\b`:           "a/b",
 		"META-INF/com/google/android/update-binary": "META-INF/com/google/android/update-binary",
 	}
 	for in, want := range ok {
@@ -43,6 +44,8 @@ func TestCleanZipName(t *testing.T) {
 		"C:/x",
 		"a\x00b",
 		"./..",
+		`..\..\etc\passwd`,
+		`system\..\..\evil`,
 	}
 	for _, in := range bad {
 		if got, err := cleanZipName(in); err == nil {
@@ -180,5 +183,59 @@ func TestSystemWideSkipMount(t *testing.T) {
 	p := resolvePlan(m)
 	if len(p.Overlays) != 1 || !p.Overlays[0].Skipped {
 		t.Fatalf("system/.skip_mount should skip everything: %+v", p.Overlays)
+	}
+}
+
+func TestVendorNoteSurvivesSystemWideMarkers(t *testing.T) {
+	for _, marker := range []string{"system/.skip_mount", "system/.replace"} {
+		root := t.TempDir()
+		writeFixture(root, map[string]string{
+			"module.prop":   goodProp,
+			marker:          "",
+			"system/bin/ls": "x\n",
+			"vendor/lib/x":  "y\n",
+		})
+		m, _ := loadDir(root)
+		p := resolvePlan(m)
+		var found bool
+		for _, o := range p.Overlays {
+			if o.VendorBare {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("%s hid the bare vendor/ note: %+v", marker, p.Overlays)
+		}
+	}
+}
+
+func TestOversizedEntryWarnsAndKeepsLinting(t *testing.T) {
+	zp := filepath.Join(t.TempDir(), "m.zip")
+	zf, err := os.Create(zp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	zw := zip.NewWriter(zf)
+	wGood, _ := zw.Create("module.prop")
+	wGood.Write([]byte(goodProp))
+	// Zeros so the archive on disk stays small; the guard trips on the
+	// decompressed length.
+	wBig, _ := zw.Create("system/blob")
+	wBig.Write(make([]byte, maxEntryBytes+1))
+	zw.Close()
+	zf.Close()
+
+	m, err := load(zp)
+	if err != nil {
+		t.Fatalf("one oversized entry sank the whole archive: %v", err)
+	}
+	if _, ok := m.Files["system/blob"]; ok {
+		t.Error("oversized entry should not be loaded")
+	}
+	if _, ok := m.Files["module.prop"]; !ok {
+		t.Error("the readable entries should survive")
+	}
+	if len(m.Warnings) == 0 {
+		t.Error("skipping an entry should be reported")
 	}
 }

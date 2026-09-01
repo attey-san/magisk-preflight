@@ -258,11 +258,25 @@ func TestParseModuleProp(t *testing.T) {
 }
 
 func TestAPIMention(t *testing.T) {
-	if n := parseAPIMention("# supports android up to api 25"); n != 25 {
-		t.Errorf("api 25 not parsed, got %d", n)
+	cases := []struct {
+		text string
+		want int
+	}{
+		{"# requires api 21", 21},
+		{"# minimum sdk level 19", 19},
+		{"# api 26", 26}, // the old pattern stopped at 25
+		{"# api 9", 9},   // and started at 10
+		{"nothing here", 0},
+		// A ceiling is not a floor. Reading these as a minimum silences
+		// tlsRule on exactly the old modules it exists to catch.
+		{"# supports android up to api 25", 0},
+		{"# tested at most on api 24", 0},
+		{"# max api 23", 0},
 	}
-	if n := parseAPIMention("nothing here"); n != 0 {
-		t.Errorf("expected 0 for no mention, got %d", n)
+	for _, c := range cases {
+		if n := parseAPIMention(c.text); n != c.want {
+			t.Errorf("parseAPIMention(%q) = %d, want %d", c.text, n, c.want)
+		}
 	}
 }
 

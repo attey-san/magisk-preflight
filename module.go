@@ -124,7 +124,11 @@ func cleanZipName(name string) (string, error) {
 	if strings.ContainsRune(name, '\x00') {
 		return "", fmt.Errorf("entry name contains NUL")
 	}
-	name = filepath.ToSlash(name)
+	// Zip stores "/" by spec, but Windows-authored archives are full of "\".
+	// filepath.ToSlash is a no-op on linux, so translate explicitly or a name
+	// like "..\..\etc\passwd" survives as one long filename and quietly
+	// fails to match any path rule.
+	name = strings.ReplaceAll(name, "\\", "/")
 	for strings.HasPrefix(name, "./") {
 		name = strings.TrimPrefix(name, "./")
 	}
@@ -190,17 +194,17 @@ func loadZip(path string) (*Module, error) {
 		}
 		seen[name] = true
 
-		if f.Mode()&os.ModeSymlink != 0 {
-			b, err := readZipEntry(f)
-			if err != nil {
-				return nil, fmt.Errorf("%s: %w", name, err)
-			}
-			m.Symlinks[name] = string(b)
-			continue
-		}
 		b, err := readZipEntry(f)
 		if err != nil {
-			return nil, fmt.Errorf("%s: %w", name, err)
+			// Same reasoning as the directory walk: one unreadable or
+			// oversized entry is a fact to report, not grounds to abandon
+			// every other finding in the archive.
+			m.warnf("skipped entry %q: %v", name, err)
+			continue
+		}
+		if f.Mode()&os.ModeSymlink != 0 {
+			m.Symlinks[name] = string(b)
+			continue
 		}
 		m.Files[name] = b
 	}
